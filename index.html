@@ -50,6 +50,11 @@ input:focus-visible,button:focus-visible,label:focus-within{outline:2px solid va
 .slider output{color:var(--ink);font-weight:600;white-space:nowrap}
 .check{display:flex;gap:10px;align-items:center;font-size:14px;color:var(--mute);margin-top:8px;min-height:36px;cursor:pointer}
 .check input{width:20px;height:20px;accent-color:var(--green)}
+#balken{height:4px;border-radius:2px;background:var(--line);overflow:hidden;margin-top:10px;visibility:hidden}
+#balken.an{visibility:visible}
+#balken i{display:block;height:100%;width:35%;background:var(--blue);border-radius:2px;animation:lauf 1.4s ease-in-out infinite}
+@keyframes lauf{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}
+@media(prefers-reduced-motion:reduce){#balken i{animation:none;width:100%;opacity:.5}}
 #status{font-size:14px;color:var(--mute);min-height:22px;margin:8px 0 0}
 #status.err{color:#ff8a7a}
 .vorschau{display:none;gap:14px;align-items:center;margin-top:12px}
@@ -69,7 +74,7 @@ footer a{color:var(--mute)}
 <body>
 <header>
   <div class="logo">Form<span>2</span>F</div>
-  <a href="https://makerworld.com/@Form2F">MakerWorld ↗</a>
+  <a class="modell-link" href="https://makerworld.com/@Form2F">MakerWorld ↗</a>
 </header>
 <main>
   <section>
@@ -99,12 +104,14 @@ footer a{color:var(--mute)}
         <input id="radius" type="range" min="150" max="1500" step="50" value="400">
       </div>
       <label class="check"><input id="neben" type="checkbox" checked> Kleine Straßen anzeigen</label>
+      <p id="tipp" style="display:none;margin:4px 0 0;font-size:13px;color:var(--mute)">Tipp: Bei großem Ausschnitt kleine Straßen ausschalten – sonst wird die Karte zu dicht.</p>
       <label class="check"><input id="wasserAn" type="checkbox" checked> Wasser anzeigen (Flüsse, Seen)</label>
     </div>
 
     <div class="step">
       <b><span class="num">3</span>Karte herunterladen</b>
       <button id="los" class="btn big blue" type="button">Karte erstellen</button>
+      <div id="balken" aria-hidden="true"><i></i></div>
       <p id="status" role="status"></p>
       <div id="vorschau" class="vorschau">
         <svg id="mini" viewBox="-50 -50 100 100" aria-label="Vorschau des Untersetzers"></svg>
@@ -122,7 +129,7 @@ footer a{color:var(--mute)}
         <li><b>Kartenquelle</b> auf „Hochgeladene Karte“ stellen und bei <b>„Karte hochladen“</b> die gespeicherte SVG wählen.</li>
         <li>Namen eintippen, 3MF herunterladen, drucken.</li>
       </ol>
-      <p style="margin:10px 0 0;font-size:14px"><a href="https://makerworld.com/@Form2F">Zum Modell auf MakerWorld ↗</a></p>
+      <p style="margin:10px 0 0;font-size:14px"><a class="modell-link" href="https://makerworld.com/@Form2F">Zum Modell auf MakerWorld ↗</a></p>
     </div>
   </aside>
 </main>
@@ -131,6 +138,9 @@ footer a{color:var(--mute)}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 {
+// >>> Hier später den Link zum Modell auf MakerWorld eintragen <<<
+const MODELL_URL = 'https://makerworld.com/@Form2F';
+
 const FELD = 84;            // mm: Kartenkreis im Modell
 const H = FELD / 2;
 const FG = H + 0.5;          // mm: Feldgrenze (85 × 85 mm je Feld)
@@ -138,9 +148,13 @@ const WASSER_X = 100;       // mm: Versatz des Wasser-Felds in der SVG
 const BREITE = {motorway:2.6,trunk:2.4,primary:2.2,secondary:2.0,tertiary:1.7,motorway_link:1.5,trunk_link:1.5,primary_link:1.4,secondary_link:1.3,tertiary_link:1.2,
   residential:1.2,unclassified:1.2,living_street:1.1,pedestrian:1.0,service:1.0};
 const KLEIN = new Set(['residential','unclassified','living_street','pedestrian','service']);
-const OVERPASS = ['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+// Kartenserver: der erste startet sofort, die anderen kommen nach und nach dazu, falls er hängt
+const OVERPASS = ['https://overpass-api.de/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter','https://overpass.private.coffee/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+const STAFFEL = 8000;       // ms bis zum nächsten Server
+const GESAMT = 90000;       // ms Höchstdauer insgesamt, inkl. Wiederholung
 
 const $ = id => document.getElementById(id);
+document.querySelectorAll('.modell-link').forEach(a => a.href = MODELL_URL);
 const map = L.map('map',{zoomControl:true}).setView([48.3705,10.8978],16);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
 
@@ -162,7 +176,9 @@ function radiusEinpassen(){
 }
 map.on('zoom move', radarAnpassen);
 map.on('resize', () => radiusEinpassen());
-$('radius').addEventListener('input', () => { $('radiusOut').textContent = radiusM() + ' m'; radiusEinpassen(); veraltet(); });
+function tipp(){ $('tipp').style.display = (radiusM() > 700 && $('neben').checked) ? 'block' : 'none'; }
+$('radius').addEventListener('input', () => { $('radiusOut').textContent = radiusM() + ' m'; radiusEinpassen(); veraltet(); tipp(); });
+$('neben').addEventListener('change', tipp);
 ['neben','wasserAn'].forEach(id => $(id).addEventListener('change', veraltet));
 map.on('moveend', () => { if(letzteMitte && map.distance(letzteMitte, map.getCenter()) > 2) veraltet(); });
 radiusEinpassen();
@@ -192,37 +208,66 @@ $('suche').addEventListener('submit', async e => {
 
 // ---------- 3. Karte erstellen ----------
 async function overpass(lat, lon, r){
-  const a = `(around:${Math.round(r*1.2)},${lat},${lon})`;
-  const q = `[out:json][timeout:40];(
-    way["highway"~"^(${Object.keys(BREITE).join('|')})$"]${a};
-    way["natural"="water"]${a}; way["waterway"~"^(riverbank|river|canal|stream)$"]${a};
-    way["landuse"~"^(reservoir|basin)$"]${a}; relation["natural"="water"]${a}; relation["waterway"="riverbank"]${a};
-    way["natural"="coastline"]${a};
+  // Rechteck statt Umkreis: deutlich schneller auf dem Server
+  const dLat = r*1.2/111320, dLon = r*1.2/(111320*Math.cos(lat*Math.PI/180));
+  const bb = `(${(lat-dLat).toFixed(6)},${(lon-dLon).toFixed(6)},${(lat+dLat).toFixed(6)},${(lon+dLon).toFixed(6)})`;
+  const q = `[out:json][timeout:60];(
+    way["highway"~"^(${Object.keys(BREITE).join('|')})$"]${bb};
+    way["natural"="water"]${bb}; way["waterway"~"^(riverbank|river|canal|stream)$"]${bb};
+    way["landuse"~"^(reservoir|basin)$"]${bb}; relation["natural"="water"]${bb}; relation["waterway"="riverbank"]${bb};
+    way["natural"="coastline"]${bb};
   );out geom;`;
-  let letzter;
-  for(const url of OVERPASS){
-    try{
-      const res = await fetch(url, {method:'POST', body:'data=' + encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'}});
-      if(res.ok) return await res.json();
-      letzter = new Error('Server ' + res.status);
-    }catch(e){ letzter = e; }
+  const frist = Date.now() + GESAMT;
+  try{ return await rennen(q, frist); }
+  catch(e){                                   // alle Server haben schnell abgelehnt: kurz warten, einmal neu
+    if(frist - Date.now() < 15000) throw e;
+    await warte(4000); return rennen(q, frist);
   }
-  throw letzter;
+}
+const warte = ms => new Promise(r => setTimeout(r, ms));
+
+// Mehrere Server gestaffelt anfragen, die erste gültige Antwort gewinnt
+function rennen(q, frist){
+  return new Promise((ok, fehler) => {
+    const stopper = [], timer = [];
+    let offen = OVERPASS.length, fertig = false;
+    const ende = (f, wert) => { if(fertig) return; fertig = true; timer.forEach(clearTimeout); stopper.forEach(c => c.abort()); f(wert); };
+    timer.push(setTimeout(() => ende(fehler, new Error('Zeit abgelaufen')), Math.max(0, frist - Date.now())));
+    OVERPASS.forEach((url, i) => timer.push(setTimeout(async () => {
+      if(fertig) return;
+      const c = new AbortController(); stopper.push(c);
+      try{
+        const res = await fetch(url, {method:'POST', body:'data=' + encodeURIComponent(q), signal:c.signal,
+          headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+        if(!res.ok) throw new Error('Server ' + res.status);
+        const daten = await res.json();
+        if(daten.remark && !(daten.elements||[]).length) throw new Error(daten.remark);
+        ende(ok, daten);
+      }catch(e){
+        if(--offen === 0) ende(fehler, e);
+      }
+    }, i * STAFFEL)));
+  });
 }
 
 $('los').addEventListener('click', async () => {
   const c = map.getCenter(), r = radiusM();
-  $('los').disabled = true; status('Lade Straßen und Wasser … (kann 10–20 Sekunden dauern)');
+  $('los').disabled = true; $('balken').classList.add('an');
+  const start = Date.now();
+  const uhr = setInterval(() => { const sek = Math.round((Date.now()-start)/1000);
+    status(sek < 30 ? `Lade Straßen und Wasser … ${sek} s (kann bis zu 1 Minute dauern)` : `Die kostenlosen Kartenserver sind gerade stark ausgelastet – bitte Seite offen lassen … ${sek} s`); }, 500);
+  status('Lade Straßen und Wasser … (kann bis zu 1 Minute dauern)');
   try{
     const daten = await overpass(c.lat, c.lng, r);
     const geo = bauen(daten, c.lat, c.lng, r, $('neben').checked, $('wasserAn').checked);
-    if(!geo.strassen.length) { status('Hier wurden keine Straßen gefunden – anderen Ausschnitt wählen.', true); return; }
+    if(!geo.strassen.length) { clearInterval(uhr); status('Hier wurden keine Straßen gefunden – anderen Ausschnitt wählen.', true); return; }
     letzteSvg = svgDatei(geo, c, r); letzteMitte = c;
     zeigeVorschau(geo);
-    status(`Fertig: ${geo.anzahl} Straßenstücke. Jetzt die SVG speichern.`);
+    clearInterval(uhr); status(`Fertig: ${geo.anzahl} Straßenstücke. Jetzt die SVG speichern.`);
+    $('vorschau').scrollIntoView({behavior:'smooth', block:'nearest'});
   }catch(e){
-    status('Kartendaten gerade nicht erreichbar. Bitte in einer Minute nochmal versuchen.', true);
-  }finally{ $('los').disabled = false; }
+    clearInterval(uhr); status('Kartendaten gerade nicht erreichbar oder überlastet. Bitte in einer Minute nochmal versuchen.', true);
+  }finally{ clearInterval(uhr); $('los').disabled = false; $('balken').classList.remove('an'); }
 });
 
 // Projektion: Mittelpunkt = (0,0), Einheit mm, y nach oben
